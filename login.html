@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 | 项目管理工具</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f2f5f8;color:#22303e;font:16px system-ui;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:100%;max-width:380px}h1{font-size:24px;margin-bottom:28px}label{display:block;margin:18px 0 8px}input,button{width:100%;padding:12px;border:1px solid #bbc6d0;border-radius:6px;font:inherit}button{margin-top:24px;background:#2e75b6;color:white;cursor:pointer}button:disabled{opacity:.6}#error{color:#b42318;min-height:24px}small{color:#5a6b7b}
+</style>
+<main><h1>项目管理工具</h1><h2 id="heading">登录</h2><form id="form"><label for="username">账号</label><input id="username" autocomplete="username" minlength="3" maxlength="64" required><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" maxlength="256" required><div id="confirmRow" hidden><label for="confirm">确认密码</label><input id="confirm" type="password" autocomplete="new-password" maxlength="256"></div><p id="error" role="alert"></p><button id="submit" disabled>登录</button></form></main>
+<script>
+let setup=false;const form=document.getElementById('form'),button=document.getElementById('submit'),error=document.getElementById('error');
+fetch('/api/auth/status',{cache:'no-store'}).then(r=>r.json()).then(s=>{if(s.authenticated){location.replace('/');return}setup=s.setup;document.getElementById('heading').textContent=setup?'设置管理员账号':'登录';button.textContent=setup?'创建账号并登录':'登录';document.getElementById('confirmRow').hidden=!setup;document.getElementById('confirm').required=setup;if(setup){document.getElementById('password').minLength=12;document.getElementById('password').autocomplete='new-password';document.getElementById('password').placeholder='至少12个字符'}button.disabled=false}).catch(()=>error.textContent='无法连接服务，请刷新重试');
+form.addEventListener('submit',async e=>{e.preventDefault();error.textContent='';const password=document.getElementById('password').value;if(setup&&password!==document.getElementById('confirm').value){error.textContent='两次密码不一致';return}button.disabled=true;try{const r=await fetch('/api/auth/'+(setup?'setup':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('username').value,password})});const result=await r.json();if(!r.ok||!result.ok)throw Error(result.err||'登录失败');location.replace('/')}catch(e){error.textContent=e.message}finally{button.disabled=false}});
+</script>
+</html>

@@ -1,0 +1,25 @@
+# Credentials and local project records
+account_credentials.json
+.env
+.env.*
+自定义项目.json
+*.db
+*.db-*
+*.sqlite*
+*.xlsx
+*.xls
+*.docx
+*.pdf
+*.dwg
+*.dxf
+*.log
+*.zip
+*.exe
+__pycache__/
+.venv/
+node_modules/
+runtime/
+pointmap_runtime/
+outputs/
+*备份*/
+*备份*.*
