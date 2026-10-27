@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <label style="margin:0;">日期</label>
         <input type="date" id="peopleDate" style="width:150px;">
         <span class="spacer"></span>
-        <button class="btn ghost sm" id="btnCopyPrev">复制前一天</button>
+        <button class="btn ghost sm" id="btnCopyPeople">复制到指定日期</button>
         <button class="btn ghost sm" id="btnPeopleTemplate">下载模板</button>
         <button class="btn ghost sm" id="btnPeopleImport">批量导入</button>
         <input type="file" id="peopleImportFile" accept=".xlsx,.xlsm,.csv,.tsv" hidden>
@@ -2754,12 +2754,40 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $('#btnSavePeople').onclick=saveAll;
   $('#btnSaveAll').onclick=saveAll;
   $('#btnSaveAll2').onclick=saveAll;
-  $('#btnCopyPrev').onclick=()=>{
-    const prev = new Date(ui.date); prev.setDate(prev.getDate()-1);
-    const pds = prev.getFullYear()+'-'+String(prev.getMonth()+1).padStart(2,'0')+'-'+String(prev.getDate()).padStart(2,'0');
-    const prevRows = ui.people.filter(p=>p.date===pds);
-    prevRows.forEach(p=>{ ui.people.push(Object.assign({}, p, {date:ui.date, note:''})); });
-    renderPeople(); toast('已复制前一天 '+pds+' 的 '+prevRows.length+' 名人员及其资料');
+  const peopleCopyDialog=document.createElement('dialog');
+  peopleCopyDialog.id='peopleCopyDialog';
+  peopleCopyDialog.setAttribute('aria-labelledby','peopleCopyTitle');
+  peopleCopyDialog.style.cssText='border:1px solid var(--line);border-radius:12px;padding:24px;width:540px;max-width:90vw';
+  peopleCopyDialog.innerHTML='<h3 id="peopleCopyTitle" style="color:var(--navy);margin-bottom:14px">复制人员到指定日期</h3><div class="form-row f2"><div><label for="peopleCopySource">来源日期</label><input type="date" id="peopleCopySource" required></div><div><label for="peopleCopyTarget">目标日期</label><input type="date" id="peopleCopyTarget" required></div></div><div style="margin-top:12px"><label for="peopleCopyMode">目标日期已有人员时</label><select id="peopleCopyMode"><option value="append">补充人员（同姓名、来源、班组的不重复添加）</option><option value="replace">替换目标日期全部人员</option></select></div><p class="hint" style="margin:12px 0">复制全部人员资料及备注，来源日期保持原样。复制后进入目标日期，核对后点击“保存当天人员”。</p><button class="btn" id="peopleCopyApply">复制到目标日期</button> <button class="btn ghost" id="peopleCopyCancel">取消</button>';
+  document.body.appendChild(peopleCopyDialog);
+  $('#btnCopyPeople').onclick=()=>{
+    $('#peopleCopySource').value=ui.date||todayStr();
+    const next=new Date((ui.date||todayStr())+'T12:00:00');next.setDate(next.getDate()+1);
+    $('#peopleCopyTarget').value=next.getFullYear()+'-'+String(next.getMonth()+1).padStart(2,'0')+'-'+String(next.getDate()).padStart(2,'0');
+    $('#peopleCopyMode').value='append';
+    peopleCopyDialog.showModal();
+  };
+  $('#peopleCopyCancel').onclick=()=>peopleCopyDialog.close();
+  $('#peopleCopyApply').onclick=()=>{
+    const source=$('#peopleCopySource').value,target=$('#peopleCopyTarget').value;
+    if(!source||!target||!$('#peopleCopySource').checkValidity()||!$('#peopleCopyTarget').checkValidity()){toast('请选择有效的来源日期和目标日期');return;}
+    if(source===target){toast('来源日期和目标日期不能相同');return;}
+    const sourceRows=ui.people.filter(p=>p.date===source);
+    if(!sourceRows.length){toast('来源日期 '+source+' 没有人员记录');return;}
+    const targetRows=ui.people.filter(p=>p.date===target),replace=$('#peopleCopyMode').value==='replace';
+    if(replace&&targetRows.length&&!confirm('将用 '+source+' 的 '+sourceRows.length+' 名人员替换 '+target+' 现有的 '+targetRows.length+' 名人员，是否继续？'))return;
+    const key=p=>JSON.stringify([p.name,p.src,p.team].map(v=>String(v||'').trim().normalize('NFKC').toLocaleLowerCase()));
+    const known=new Set(replace?[]:targetRows.map(key)),copied=[];
+    sourceRows.forEach(p=>{
+      if(!replace&&known.has(key(p)))return;
+      copied.push({...p,date:target});known.add(key(p));
+    });
+    if(replace)ui.people=ui.people.filter(p=>p.date!==target);
+    ui.people.push(...copied);
+    // Preserve the current date's work summary before navigating to the target.
+    if($('#peopleWork'))state.attendance[ui.date]={...(state.attendance[ui.date]||{}),work:$('#peopleWork').value};
+    ui.date=target;renderPeople();peopleCopyDialog.close();
+    toast('已从 '+source+' 复制 '+copied.length+' 名人员到 '+target+(!replace&&sourceRows.length>copied.length?'，跳过 '+(sourceRows.length-copied.length)+' 条重复记录':'')+'；请核对后保存');
   };
   $('#btnPeopleTemplate').onclick=()=>{location.href='/api/people_import_template?kind=people';};
   $('#btnPeopleImport').onclick=()=>$('#peopleImportFile').click();
