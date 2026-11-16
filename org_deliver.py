@@ -37,6 +37,13 @@ ORG_HEADERS = ['人员ID', '姓名', '岗位', '所属分组', '角色', '联系
 ORG_KEYS = ['pid', 'name', 'job', 'group', 'role', 'phone', 'area', 'sub', 'status', 'sort',
             'note', 'created', 'updated', 'proj', 'gender', 'trade', 'id_no', 'entry_date', 'bio', 'photo']
 ORG_WIDTHS = [10, 10, 12, 14, 14, 13, 16, 16, 9, 7, 20, 11, 11, 12, 8, 12, 20, 12, 36, 24]
+ORG_HEADERS += ['出生日期','代联系人','代联系人电话','结束时间','工价','合计发放工资']
+ORG_KEYS += ['birth_date','contact_name','contact_phone','exit_date','daily_rate','paid_wages']
+ORG_WIDTHS += [14,16,20,14,14,18]
+ORG_HEADERS += ['工资币种']
+ORG_KEYS += ['salary_currency']
+ORG_WIDTHS += [12]
+
 GROUP_HEADERS = ['分组名', '排序号', '说明']
 JOB_HEADERS = ['岗位名', '排序号', '说明']
 ROLE_HEADERS = ['角色名', '排序号', '说明']
@@ -151,6 +158,7 @@ def load_org(proj):
     groups.sort(key=lambda x: (x['sort'] if isinstance(x['sort'], (int, float)) else 99, x['name']))
     jobs.sort(key=lambda x: (x['sort'] if isinstance(x['sort'], (int, float)) else 99, x['name']))
     roles.sort(key=lambda x: (x['sort'] if isinstance(x['sort'], (int, float)) else 99, x['name']))
+    attach_attendance(proj, people)
     return {'people': people, 'groups': groups, 'jobs': jobs, 'roles': roles}
 
 
@@ -195,7 +203,7 @@ def save_org(proj, data):
         if not rec.get('created'):
             rec['created'] = now
         rec['updated'] = now
-        rec['proj'] = 'titan' if proj == 'titan' else 'bg'
+        rec['proj'] = proj
         rec['sort'] = rec.get('sort')
         if rec['sort'] is None:
             rec['sort'] = 999
@@ -878,3 +886,51 @@ def update_manifest(proj, no, fields):
     rebuild_sheet(ws, MANIFEST_HEADERS, manifest, [14, 24, 12, 8, 16, 10, 9, 24, 40], center_cols={1, 3, 4, 5, 6, 7})
     wb.save(p)
     return {'ok': True}
+
+
+def attach_attendance(proj, people, attendance_path=None):
+    """Project-local legacy attendance: only unambiguous names are associated."""
+    import unicodedata
+    def key(v): return unicodedata.normalize('NFKC', str(v or '').strip()).casefold()
+    names = {}
+    for person in people:
+        names.setdefault(key(person.get('name')), []).append(person)
+        person.update(work_hours=0, work_days=0, first_work_date='', last_work_date='', attendance_warning='')
+        try:
+            born = datetime.date.fromisoformat(str(person.get('birth_date') or '')[:10])
+            today = datetime.date.today()
+            person['age'] = today.year-born.year-((today.month,today.day)<(born.month,born.day))
+        except (ValueError, TypeError): person['age'] = ''
+    path = attendance_path or os.path.join(os.path.dirname(_paths(proj)['p26']), '29_项目人员管理表.xlsx')
+    if not os.path.exists(path): return
+    book = load_workbook(path, read_only=True, data_only=True)
+    dates = {}
+    hours = {}
+    try:
+        if '人员明细' not in book.sheetnames: return
+        rows = book['人员明细'].iter_rows(values_only=True)
+        headers = [str(v or '').strip() for v in next(rows, ())]
+        if not all(h in headers for h in ('日期','姓名')): return
+        di, ni = headers.index('日期'), headers.index('姓名')
+        hi = next((i for i,h in enumerate(headers) if h.replace('（','(').replace('）',')').replace(' ','') in ('工时(h)','工时','工作时长','工时(小时)')), None)
+        for row in rows:
+            if max(di,ni)>=len(row): continue
+            if hi is not None and hi<len(row) and row[hi] not in (None,''):
+                try:
+                    if float(row[hi])<=0: continue
+                except (ValueError,TypeError): continue
+            try: date=datetime.date.fromisoformat(str(row[di])[:10]).isoformat()
+            except (ValueError,TypeError): continue
+            name = key(row[ni])
+            dates.setdefault(name,set()).add(date)
+            if hi is not None and hi<len(row) and row[hi] not in (None,''):
+                import math
+                value=float(row[hi])
+                if math.isfinite(value): hours[name]=hours.get(name,0)+value
+    finally: book.close()
+    for name, persons in names.items():
+        if len(persons)>1:
+            for person in persons: person['attendance_warning']='同名人员，出勤关联待核对'
+            continue
+        days=sorted(dates.get(name,set()))
+        persons[0].update(work_hours=round(hours.get(name,0),4),work_days=len(days),first_work_date=days[0] if days else '',last_work_date=days[-1] if days else '')
